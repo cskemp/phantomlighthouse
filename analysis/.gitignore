@@ -1,0 +1,14 @@
+*.html
+analyze_data_cache/
+analyze_data_files/
+analyze_field_data_cache/
+analyze_field_data_files/
+synthetic_analyze_field_data.Rmd
+synthetic_analyze_field_data_cache/
+synthetic_analyze_field_data_files/
+analyze_expt1_field_cache/
+analyze_expt1_field_files/
+analyze_expt2_vr_cache/
+analyze_expt2_vr_files/
+
+

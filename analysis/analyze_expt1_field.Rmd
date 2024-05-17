@@ -1,0 +1,109 @@
+---
+title: "Lighthouse Field experiment"
+output: html_document
+date: "December 2023"
+---
+
+We ran a field experiment on Lady Elliot Island in 2023/2024 to test predictions about two illusions.
+
+1. Phantom Lighthouse. We predicted that the phantom lighthouse illusion emerges at a critical distance between the observer and the source of the beam, and that this critical distance is roughly 75 m.
+2. Bent Beam (height). We predicted that the Lady Elliot lighthouse beam is perceived as pointing towards the ground.
+
+First load some packages we'll need.
+
+```{r setup, message = FALSE}
+library(here)
+library(tidyverse)
+library(scales)
+library(brms)
+library(tidybayes)
+library(lme4)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+mytheme <-  theme_classic(base_size = 10)  +  
+            theme(strip.background = element_blank()) 
+
+theme_set(mytheme)
+```
+
+```{r load_data}
+# Impute with -10, 110 for people who didn't flip
+thresholds <- c(-10, -10, -10, -10, 30, -10, 110, 90)
+thresholds <- c(90, 90, 90, 90, 103.5, 90, 154, 146)
+
+# number who reported beam pointing down
+n_down <- 8
+n_total <- length(thresholds)
+
+d_sc <-  tibble(id = 1:n_total, data = thresholds) %>% 
+  mutate(impute = if_else(data == 90 | data == 154, "imputed", "direct")) %>% 
+  mutate(censored= if_else(data == 90, "left", "none")) %>% 
+  mutate(censored= if_else(data == 154, "right", censored))  
+
+d_bb <-  tibble(id = 1:n_total, data = 1)
+```
+
+We have `r n_total` participants in total. 
+
+###  Summaries across all participants
+
+Plot data for the phantom lighthouse condition (Figure 4b)
+
+```{r summary_phantom}
+
+all_results_phantom <- d_sc %>% 
+  ggplot(aes(data, group=impute, color=impute, fill = impute)) +
+  geom_bar() +
+  scale_fill_grey(guide = "none") +
+  scale_color_grey(guide = "none") +
+  theme_classic()  +
+  scale_x_continuous(name ="Distance (m)", 
+                    breaks=  c(90, 94, 104, 116, 131, 146, 154), 
+                    labels = c("<90", "94", "104", "116", "131", "146", ">154")) +
+  mytheme
+
+all_results_phantom
+
+ggsave(here("output","figures", "thresholds_field.pdf"), plot = all_results_phantom, width = 4,height = 2)
+
+```
+
+
+### Preregistered Bayesian analyses
+
+Because our design departed from the staircase method described in the preregistration, it did not make sense to compute a posterior distribution over the critical separation for the phantom illusion.  We therefore focus on the bent beam illusion.
+
+```{r brms_bb, cache=TRUE}
+nchain <- 4 
+
+fit_bb  <- brm( data ~ 1, data = d_bb, family = "bernoulli", chains = nchain, iter=5000, seed = 0)
+```
+
+
+```{r brms_bentbeam}
+bb_posterior <- fit_bb %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) 
+
+bb_posterior %>% 
+  ggplot(aes(x=intercept, y = "sketch")) +
+  stat_halfeye() +
+  geom_vline(xintercept= 0) +
+  ggtitle('Bent Beam')
+
+fit_bb_printed <- fixef(fit_bb) %>% as_tibble(rownames="NA")
+```  
+
+The 95% credibility interval on the intercept is [`r round(fit_bb_printed$Q2.5, 2)`, `r round(fit_bb_printed$Q97.5, 2)`].
+
+### Preregistered Frequentist analysis
+
+For the bent beam illusion:
+
+```{r freq_bb_binomial_test}
+binom.test(8, 8, p = 0.5,
+           alternative = c("greater"),
+           conf.level = 0.95)
+```
+ 

@@ -1,0 +1,428 @@
+---
+title: "VR lighthouse experiment"
+output: html_document
+date: "December 2023"
+---
+
+We ran a preregistered VR experiment in 2023 to test predictions about three illusions.
+
+1. Phantom Lighthouse. We predicted that the phantom lighthouse illusion can be experienced in VR, that it emerges at a critical distance between the observer and the source of the beam, and that this critical distance is roughly 75 m.
+2. Bent Beam (height). We predicted that a beam must be tilted above the horizontal in order to be perceived as horizontal (ie having constant height).
+3. Bent Beam (depth). We predicted that a beam must be tilted away from the observer in order to be perceived as having constant depth. 
+
+The rest of this notebook shows analyses relevant to these predictions. The overall summary is that the predictions about the first two illusions (phantom and height) are supported but that the third prediction (depth) is not.
+
+First load some packages we'll need.
+
+```{r setup, message = FALSE}
+library(here)
+library(tidyverse)
+library(scales)
+library(brms)
+library(tidybayes)
+library(lme4)
+library(patchwork)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+condition_order <- c("demo_sc", "demo_adj", "phantom_sc", "phantom_adj", "bbhoriz_sc", "bbhoriz_adj", "bbdepth_sc", "bbdepth_adj") 
+
+method_order <- c("staircase", "adjustment") 
+
+illusion_order<- c("phantom", "height", "depth") 
+
+# bent beam depth staircase was flipped for these participants
+flipped_bbdepth <- c(3395, 22283, 33988, 96413, 28844, 41735, 84574)
+```
+
+Now load the data and look at the top 5 rows. 
+```{r load_data}
+d_full <- read_csv(here("data", "expt2_vr.csv"), show_col_types = FALSE) %>% 
+  group_by(name) %>% 
+  mutate(total_time = max(minutes)) %>% 
+  ungroup() %>% 
+  mutate(method = fct_recode(method, "staircase"="sc", "adjustment" = "adj")) %>% 
+  # invert sign on angles for depth condition
+  mutate(data = if_else(illusion == "bbdepth", -data, data))
+
+d_time <- d_full %>% 
+  select(name, total_time) %>% 
+  unique()
+
+rt_mean <- round(mean(d_time$total_time), 2)
+rt_sd <- round(sd(d_time$total_time), 2)
+rt_lower <- rt_mean - 3 * rt_sd
+rt_upper <- rt_mean + 3 * rt_sd
+
+n_rt_exclusions <- sum(d_time$total_time > rt_upper | d_time$total_time < rt_lower)
+
+d <- d_full %>% 
+  filter(illusion != "bbdepth" | !(name %in% flipped_bbdepth)) %>%  # drop participants with flipped staircase
+  filter(total_time >= rt_lower & total_time <= rt_upper) %>%       # drop exclusions based on RT
+  mutate(illusion = fct_recode(illusion, "phantom" = "phantom", "height" = "bbhoriz", "depth" = "bbdepth")) %>% 
+  filter()
+
+head(d, 5)
+```
+
+We have `r length(unique(d_full$name))` participants in total. 7 of them had a faulty depth staircase because of a bug in the experimental code (the beam was adjusted in the wrong direction whenever they pressed a button), and we have dropped all depth data for these participants. The preregistration specified that we would recruit 24 participants, so we met that goal for the depth condition and exceeded it for the other two conditions.
+
+The mean response time was `r rt_mean` minutes and the standard deviation was `r rt_sd`. `r n_rt_exclusions` participant was dropped for having a total response time more than 3 standard deviations away from the group mean, leaving `r length(unique(d$name))` participants in the phantom and height conditions and  `r d %>% filter(illusion == "depth") %>% pull("name") %>% unique() %>% length()` in the depth condition.
+
+
+###  Summaries across all participants
+
+First plot data for the phantom lighthouse condition (Fig 5c):
+
+```{r summary_phantom}
+d_sc <- d %>% 
+  filter(illusion != "demo" & method == "staircase" & inflection != 0)  %>% 
+  group_by(name,illusion,trialnum) %>% 
+  slice_tail(n=2) %>% 
+  ungroup() %>% 
+  group_by(name, illusion, method, id, benchmark, trialnum) %>% 
+  summarize(data = mean(data), minutes = max(minutes), count = max(count), .groups = "drop")
+
+d_adj <- d %>% 
+  filter(illusion != "demo" & method == "adjustment")  %>% 
+  group_by(name,illusion,trialnum) %>% 
+  slice_tail(n=1) %>% 
+  ungroup() %>% 
+  select(name, illusion, method, id, benchmark, trialnum, data,minutes,count)
+  
+d_trials <- d_sc %>% 
+  bind_rows(d_adj) %>% 
+  filter(illusion != "depth" | data <= 90) %>% # exclusions: drop bbdepth cases where angle (inverted) is greater than 90
+                                              # this removes one staircase for one participant
+  mutate(illusion = factor(illusion, levels = illusion_order)) %>% 
+  mutate(method = factor(method, levels = method_order))
+
+medians <- d_trials %>% 
+  group_by(id) %>% 
+  summarize(med = round(median(data), 2))
+
+phantom_sc_med <- medians %>% 
+  filter(id == "phantom_sc") %>% 
+  pull() 
+  
+phantom_adj_med <- medians %>% 
+  filter(id == "phantom_adj") %>% 
+  pull()
+
+bbhoriz_sc_med <- medians %>% 
+  filter(id == "bbhoriz_sc") %>% 
+  pull() 
+  
+bbhoriz_adj_med <- medians %>% 
+  filter(id == "bbhoriz_adj") %>% 
+  pull()
+
+bbdepth_sc_med <- medians %>% 
+  filter(id == "bbdepth_sc") %>% 
+  pull() 
+  
+bbdepth_adj_med <- medians %>% 
+  filter(id == "bbdepth_adj") %>% 
+  pull()
+
+all_results_phantom <- d_trials %>% 
+  filter(illusion == "phantom") %>% 
+  ggplot(aes(x=illusion, y = data, fill = method)) +
+  geom_hline(yintercept=75, color = "gray") +
+  geom_hline(yintercept=100, color = "gray") +
+  # quantiles based on density estimate -- not sample quantiles
+  geom_violin(position = "dodge", draw_quantiles = c(0.5)) +
+  geom_point(position = position_jitterdodge(), size = 0.1, alpha = 0.5, show.legend = FALSE) +
+  #scale_y_continuous( trans = "log10", labels = label_comma(), breaks = c(0.01, 0.1, 1, 10, 32, 100, 320, 1000)) +
+  scale_y_continuous( trans = "log10", labels = c("0.01", "0.1", "1", "10", "32", "100", "320", "1000"), breaks = c(0.01, 0.1, 1, 10, 32, 100, 320, 1000)) + 
+  xlab("condition") + ylab("critical distance")
+
+all_results_phantom
+
+ggsave(here("output","figures", "vr_violins_phantom.pdf"), plot = all_results_phantom, width = 5,height = 3)
+
+all_results_phantom_panel <- all_results_phantom +
+  theme(legend.position = "none")
+
+```
+
+The y-axis here uses a logarithmic scale, and the grey horizontal lines show distances of 75 and 100. 
+
+The plots here show estimates of the critical point -- ie the minimum distance at which the phantom illusion emerges. Our Bayesian model predicts that this critical point appears at a separation of 75 m between the observer and the lighthouse. There's some uncertainty in this prediction because it depends on the prior distribution over distances assumed by the model, and the prior used in our simulations may not accurately reflect the true distribution encountered in everyday life. We therefore preregistered the prediction that  ``the phantom lighthouse illusion will begin to emerge when the distance between viewer and lighthouse is between 50 and 100 m.''
+
+For the staircase (red) and adjustment (cyan) methods, the median critical points obtained were  `r phantom_sc_med` and   `r phantom_adj_med` respectively.  These results seem broadly compatible with our prediction. The median for the adjustment method is outside the preregistered range, but not by much, and it's notable that the two methods provide converging evidence that the critical point is not far from the predicted value of 75 m. The results therefore suggest that (1) the phantom illusion is experienced in VR, that (2) as predicted, the illusion begins to emerge at a critical distance, and (3) this critical distance is around 75-100 m. 
+ 
+For the adjustment method, 6 participants generated at least one response smaller than 1, and there are 8 of these responses in total. There are no staircase responses smaller than one. Small responses have a relatively large influence on the model, and it may make sense to drop them before running the regression model because they are likely to be an artifact of our VR experiment. To make sure that participants remained in front of the source of the beam at all times, whenever a staircase or adjustment step would have left the distance between participant and the source less than 1 m, we replaced this step with a special-purpose step that halved the current distance between the participant and the source. Responses less than 1 are therefore unlikely to indicate that a participant actually saw the illusion at a critical distance less than 1 m. Instead, they may be produced by participants who were exploring the limits of the display (e.g. pressing one button repeatedly in the adjustment phase to see how the scene would change). 
+
+Now look at the results for the bent beam conditions (Fig 5d):
+
+```{r summary_bb}
+all_results_bb <- d_trials %>% 
+  filter(illusion != "phantom") %>% 
+  ggplot(aes(x=illusion, y = data, fill = method)) +
+  geom_hline(yintercept=0, color = "gray") +
+  geom_violin(position = "dodge", draw_quantiles = c(0.5)) +
+  geom_point(position = position_jitterdodge(), size = 0.1, alpha = 0.5, show.legend = FALSE) +
+  scale_y_continuous( breaks = c(-60, -45, -30, -15, 0, 15, 30, 45, 60, 75, 90 )) +
+  xlab("condition") + ylab("threshold")
+
+all_results_bb
+
+ggsave(here("output","figures", "vr_violins_bbeam.pdf"), plot = all_results_bb, width = 6,height = 3)
+
+violins <- all_results_phantom_panel + all_results_bb +
+    plot_layout(widths = c(3,5))+
+    plot_annotation(tag_levels = 'a', tag_suffix = ")")
+
+ggsave(here("output","figures", "vr_violins.pdf"), plot = violins, width = 7,height = 3)
+```
+
+For the height (horizontal) condition there seems to be a clear effect. Regardless of whether we use the staircase method (red) or the method of adjustment (cyan), the beam needs to be pointing up in order for participants to see it as horizontal (median angles are `r bbhoriz_sc_med` and `r bbhoriz_adj_med` degrees above horizontal for the staircase and adjustment methods respectively).
+
+For the depth condition there is no consistent effect. The staircase data suggest that the beam needs to be tilted away (median angle is `r bbdepth_sc_med`) in order to appear of constant depth. The adjustment data suggest the opposite (median angle is `r bbdepth_adj_med`, which means that the beam needs to be tilted toward the participant in order to appear of constant depth).
+
+There are additional reasons to believe that the data for the depth condition are not reliable. As for the other two conditions, the VR scene for this condition included a cylinder (the lighthouse beam) in a completely dark environment illuminated by a single spotlight. The section of the cylinder that fell within the light cast by the spotlight was visible, and the rest of the cylinder was invisible. For the depth condition, we'd anticipated that in the majority of cases the angle of the beam would remain within the interval [-30, 30], and the VR scene looked reasonable for angles within this range. Outside of this range, however, the VR scene began to look increasingly strange. For example, when the angle was -90 the cylinder was entirely invisible, and as the angle began to approach -90 the visible portion of the cylinder became shorter and shorter. In the depth condition, multiple participants ended up at angles for which the VR scene looked strange, and around 5 participants had to ask the experimenter for help because the lighthouse beam had apparently disappeared (ie because the angle was close to -90). 
+
+Some participants may have had trouble with the depth condition because their interpretation of "pointing towards" and "pointing away" may have differed from the interpretation we intended. If the beam is anchored on the right (as it actually was), then it is natural to say that a beam is "pointing toward" the participant if the left end has smaller depth than the right depth. The experimenter described this interpretation in the pre-task briefing using a physical prop (a pencil), and it was reinforced in the experiment by proving a visual guide on the floor of the VR scene. If the beam were anchored on the left, however, then it is natural to say that a beam is "pointing away from" the participant if the left end has smaller depth than the right depth. In debriefing one participant mentioned that she had initially followed this interpretation, and changed to the desired interpretation only partway through the task. The undesired interpretation may have been facilitated by the fact that the left side of the beam was further away than the right side and therefore appeared narrower. 
+
+A future VR experiment may be able to use a design that alleviates some of these issues. The current experiment, however, does suggest that participants found the depth task relatively difficult, and that the depth illusion (if it exists) is weaker and more variable than the other two illusions in our experiments (horizontal bent beam and phantom lighthouse). The problems participants had with the depth condition suggest that they did not perceive the stimulus consistently even within the acceptable range of angles  --- the reason many participants ended up outside this range is presumably because they felt that angles within the acceptable range did not produce a beam that appeared to be of constant depth.
+
+## Statistical analyses
+
+We now run a set of statistical analyses, beginning with analyses specified in the preregistration.
+
+### Preregistered Bayesian analyses
+
+```{r brms_phantom, cache=TRUE}
+phantom_sc <- d_trials %>% 
+  filter(id== "phantom_sc")  
+
+phantom_adj <- d_trials %>% 
+  filter(id== "phantom_adj")  %>% 
+  filter(data >= 1) # drop values of 1 or smaller
+
+phantom_adj_nodrop <- d_trials %>% 
+  filter(id== "phantom_adj")  
+
+phantom_both <- d_trials %>% 
+  filter(id== "phantom_sc" | id == "phantom_adj") %>%   
+  filter(data >= 1) # drop values of 1 or smaller
+
+nchain <- 4 
+my_seed <- 0
+
+fit_phantom_sc  <- brm( data ~ (1| name), data = phantom_sc, family = "lognormal", seed = my_seed, chains = nchain)
+fit_phantom_adj <- brm( data ~ (1| name), data = phantom_adj, family = "lognormal", seed = my_seed, chains = nchain)
+fit_phantom_adj_nodrop <- brm( data ~ (1| name), data = phantom_adj_nodrop, family = "lognormal", seed = my_seed, chains = nchain)
+# gives warning about divergent transitions -- we proceed anyway because the results for this model are not critical
+fit_phantom_both <- brm( data ~ (1| name) + (1|id), data = phantom_both, family = "lognormal", seed = my_seed, chains = nchain, control = list(adapt_delta = 0.9))
+```
+
+```{r brms_bb, cache=TRUE}
+bbhoriz_sc <- d_trials %>% 
+  filter(id== "bbhoriz_sc") 
+
+bbhoriz_adj <- d_trials %>% 
+  filter(id== "bbhoriz_adj") 
+
+bbhoriz_both <- d_trials %>% 
+  filter(id== "bbhoriz_sc" | id == "bbhoriz_adj") 
+
+bbdepth_sc <- d_trials %>%     # there are 13 staircase values less than -65 degrees. This seems like a problem,
+                               # but there too many values to remove as outliers
+  filter(id== "bbdepth_sc") 
+
+bbdepth_adj <- d_trials %>% 
+  filter(id== "bbdepth_adj") 
+
+bbdepth_both <- d_trials %>% 
+  filter(id== "bbdepth_sc" | id == "bbdepth_adj") 
+
+nchain <- 4 
+
+fit_bbh_sc  <- brm( data ~ (1| name), data = bbhoriz_sc, seed = my_seed, chains = nchain)
+fit_bbh_adj <- brm( data ~ (1| name), data = bbhoriz_adj, seed = my_seed, iter = 5000, chains = nchain)
+# gives warning about divergent transitions -- we proceed anyway because the results for this model are not critical
+fit_bbh_both <- brm( data ~ (1| name) + (1|id), data = bbhoriz_both, seed = my_seed, iter = 5000, chains = nchain)
+
+fit_bbd_sc  <- brm( data ~ (1| name), data = bbdepth_sc, seed = my_seed, chains = nchain)
+fit_bbd_adj <- brm( data ~ (1| name), data = bbdepth_adj, seed = my_seed, chains = nchain)
+# gives warning about divergent transitions -- we proceed anyway because the results for this model are not critical
+fit_bbd_both <- brm( data ~ (1| name) + (1|id), data = bbdepth_both, seed = my_seed, iter = 5000, chains = nchain)
+
+```
+
+For a lognormal model, `exp(b_Intercept)` is the median of the distribution.
+
+```{r brms_phantom_plot}
+phantom_sc_posterior <- fit_phantom_sc %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) %>% 
+  mutate(median= exp(intercept)) %>% 
+  mutate(method = "staircase")
+
+phantom_adj_posterior <- fit_phantom_adj %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) %>% 
+  mutate(median= exp(intercept)) %>% 
+  mutate(method = "adjustment")
+
+phantom_adj_posterior_nodrop <- fit_phantom_adj_nodrop %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) %>% 
+  mutate(median= exp(intercept)) %>% 
+  mutate(method = "adjustment")
+
+phantom_posterior_both <- fit_phantom_both %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) %>% 
+  mutate(median= exp(intercept)) %>% 
+  mutate(method = "both")
+
+bind_rows(phantom_sc_posterior, phantom_adj_posterior) %>% 
+  ggplot(aes(x=median, y = method)) +
+  stat_halfeye() +
+  geom_vline(xintercept= 75) +
+  ggtitle('Phantom')
+
+median_qi(phantom_sc_posterior, median)
+median_qi(phantom_adj_posterior, median)
+median_qi(phantom_adj_posterior_nodrop, median)
+median_qi(phantom_posterior_both, median)
+```
+
+
+Here we've plotted the 95% credibility interval on the median of the posterior distribution. For the staircase data, the 95% credibility interval includes 75, the predicted median. For the adjustment data, the density is to the left of 75 if we don't filter the responses less than 1, and to the right of 75 if we do filter these responses. Either way, though, the 95% credibility interval includes 75.
+
+For the phantom condition, the staircase version asked directly about the issue of most interest (ie whether the source of the beam was in front of the participant or behind the participant). In contrast, the adjustment version asked participants to adjust the display until the beam appeared to be sweeping horizontally over their heads. Because of this difference, I think that the staircase method should be given more weight than the adjustment method, but it's good that the two produce broadly compatible results.
+
+Now consider the height condition.
+
+```{r brms_height_plot}
+bbh_sc_posterior <- fit_bbh_sc %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) %>% 
+  mutate(method = "staircase")
+
+bbh_adj_posterior <- fit_bbh_adj %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) %>% 
+  mutate(method = "adjustment")
+
+bbh_both_posterior <- fit_bbh_both %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) 
+
+bind_rows(bbh_sc_posterior, bbh_adj_posterior) %>% 
+  ggplot(aes(x=intercept, y = method)) +
+  stat_halfeye() +
+  geom_vline(xintercept= 0) +
+  ggtitle('Height')
+
+median_qi(bbh_sc_posterior, intercept)
+median_qi(bbh_adj_posterior, intercept)
+median_qi(bbh_both_posterior, intercept)
+
+```  
+
+For the height condition, the results from staircase and adjustment methods are consistent, and in both cases the 95% credibility interval excludes zero. We can take this as evidence that a beam does have to be tilted above the horizontal in order for people to perceive it as having constant height.
+
+
+```{r brms_depth_plot}
+bbd_sc_posterior <- fit_bbd_sc %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) %>% 
+  mutate(method = "staircase")
+
+bbd_adj_posterior <- fit_bbd_adj %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) %>% 
+  mutate(method = "adjustment")
+
+bbd_both_posterior <- fit_bbd_both %>%
+  spread_draws(b_Intercept) %>% 
+  rename(intercept = b_Intercept) 
+
+bind_rows(bbd_sc_posterior, bbd_adj_posterior) %>% 
+  ggplot(aes(x=intercept, y = method)) +
+  stat_halfeye() +
+  geom_vline(xintercept= 0) +
+  ggtitle('Depth')
+
+median_qi(bbd_sc_posterior, intercept)
+median_qi(bbd_adj_posterior, intercept)
+median_qi(bbd_both_posterior, intercept)
+```
+
+For the depth condition, both 95% credibility intervals again exclude zero, but the results are inconsistent across the two methods. The overall conclusion is therefore that we don't have evidence for an effect either way.
+
+### Preregistered Frequentist analyses
+
+First the height condition.
+
+```{r freq_height_sc}
+
+# Singular fit for staircase data
+#m1_height  <- lmer( data ~ (1| name), data = bbhoriz_sc)
+#m0_height  <- lmer( data ~ 0 + (1| name), data = bbhoriz_sc)
+
+m1_height  <- lm( data ~ 1, data = bbhoriz_sc)
+m0_height  <- lm( data ~ 0, data = bbhoriz_sc)
+
+summary(m1_height)
+ci_intercept <- confint(m1_height)
+ci_intercept
+
+a_height <- anova(m0_height, m1_height)
+a_height
+```
+
+The preregistered model with a random effect for participant yields a singular fit on the staircase data, so we've run a model here without random effects. The results suggest that the model with an intercept is significantly better than the model without an intercept, suggesting that the angle of the beam needs to be positive (the estimate here is 
+`r round(coef(m1_height),1)` degrees) in order for people to see it as constant in height.
+ 
+ 
+```{r freq_height_adj}
+m1_height  <- lmer( data ~ (1| name), data = bbhoriz_adj)
+m0_height  <- lmer( data ~ 0 + (1| name), data = bbhoriz_adj)
+
+summary(m1_height)
+ci_intercept <- confint(m1_height)
+ci_intercept
+
+a_height <- anova(m0_height, m1_height)
+a_height
+```
+
+There's no singular fit for the adjustment data, so we've run the model with a random effect for participant. The intercept is `r round(fixef(m1_height),1)` degrees and again the model with intercept is significantly better than the model with zero intercept.
+
+Now consider the depth condition.
+
+```{r freq_depth_sc}
+m1_depth  <- lmer( data ~ (1| name), data = bbdepth_sc)
+m0_depth  <- lmer( data ~ 0 + (1| name), data = bbdepth_sc)
+
+summary(m1_depth)
+ci_intercept <- confint(m1_depth)
+ci_intercept
+
+a_depth<- anova(m0_depth, m1_depth)
+a_depth
+```
+
+The intercept for the staircase data is  `r round(fixef(m1_depth),1)`  degrees, and the model with intercept is significantly better than the model without intercept.
+
+```{r freq_depth_adj}
+m1_depth  <- lmer( data ~ (1| name), data = bbdepth_adj)
+m0_depth  <- lmer( data ~ 0 + (1| name), data = bbdepth_adj)
+
+summary(m1_depth)
+ci_intercept <- confint(m1_depth)
+ci_intercept
+
+a_depth<- anova(m0_depth, m1_depth)
+a_depth
+```
+
+The intercept for the adjustment data is  `r round(fixef(m1_depth),1)`  degrees, and the model with intercept is significantly better than the model without intercept.
+
+Although both analyses of the depth data yield statistically significant results, it doesn't make sense to interpret these because the two methods produce incompatible conclusions.
