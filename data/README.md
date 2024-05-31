@@ -17,6 +17,9 @@ The experiment used a 100m measuring tape stretched out on the beach. 0 m along 
   * `Comments`: Free text field including additional observations.
 
 
+`expt1_sketches.pdf` includes sketches made by the eight participants.
+
+
 ## Experiment 2 Data
 
 `expt2_vr.csv` includes the following columns:
