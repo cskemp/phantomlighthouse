@@ -7,14 +7,27 @@ Source code for the Unity experiment (Experiment 2). To run this you'll need to 
 Code for computing model predictions
 
 ## movies
-Screen recordings for separations between observer and lighthouse of 0m, 75m and 500 m.
+Screen recordings for separations between observer and lighthouse of 0m, 67 m and 300 m.
 
 ## analysis
-Notebooks containing analyses for Experiment 1 (`analyze_field_data.Rmd`) and Experiment 2 (`analyze_data.Rmd`)
+Notebook containing analyses for the VR experiment (`analyze_expt_vr.Rmd`) and a field experiment that is not included in the current version of the paper (`analyze_expt_field.Rmd`)
 
 ## data
-Data for Experiment 1 (`field_data.csv`) and Experiment 2 (`lighthouse_nocue_v1.csv')
+Data for the VR experiment (`expt_vr.csv') and the field experiment 
+(`expt_field.csv`)
 
 ## materials
-Questions given to participants as part of Experiment 1. Experiment 2 materials are represented by the source code in `Lighthouse/`
+Questions given to participants as part of the field experiment. Materials for the VR experiment are represented by the source code in `Lighthouse/`
+
+## Installing R Libraries
+
+From within R, run
+
+`> renv::restore()`
+
+to install packages used by the code in this repository
+
+## Python version
+
+This code was developed using Python 3.11. See `environment.yml` for a full specification of the environment used.
 

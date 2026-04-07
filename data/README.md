@@ -1,9 +1,23 @@
+## VR Experiment Data
 
-## Experiment 1 Data
+`expt_vr.csv` includes the following columns:
+
+  * `name`: randomly generated identifier used to name the data file for this participant
+  * `illusion`: condition which could be `demo` (2 spheres), `phantom` (phantom condition), `bbhoriz` (bent beam horizontal condition), or `bbdepth` (bent beam depth condition)
+  * `method`: `sc` (staircase) or `adj` (adjustment)
+  * `id`: combines `illusion` and `method`
+  * `data`: variable value (e.g. separation or angle depending on condition)
+  * `time`: elapsed time in seconds
+  * `minutes`: elapsed time in minutes
+  * `trial`: estimate number (e.g. there were 2 staircase estimates and 4 adjustment estimates per condition)
+  * `count`: response number within the current estimate
+  * `inflection`: indicates whether the current response is an inflection point: -1 indicates increasing -> decreasing, 1 indicates decreasing -> increasing, and 0 indicates no inflection.    * `benchmark`: benchmark value for current condition (e.g. 75 m for phantom condition)
+
+## Field Experiment data
 
 The experiment used a 100m measuring tape stretched out on the beach. 0 m along the tape corresponds to the 90m position in Figure 4a, and 100m along the tape corresponds to the 154 m position in Figure 4a. All positions in the data file are with respect to the measuring tape rather than the labels in Figure 4a.
 
-`expt1_field.csv` includes the following columns:
+`expt_field.csv` includes the following columns:
 
   * `Participant Number`: participant id
   * `Date`: date on which participant took the task
@@ -17,21 +31,8 @@ The experiment used a 100m measuring tape stretched out on the beach. 0 m along 
   * `Comments`: Free text field including additional observations.
 
 
-`expt1_sketches.pdf` includes sketches made by the eight participants.
+`fieldexpt_sketches.pdf` includes sketches made by the eight participants.
 
+## Empirical priors on distance
 
-## Experiment 2 Data
-
-`expt2_vr.csv` includes the following columns:
-
-  * `name`: randomly generated identifier used to name the data file for this participant
-  * `illusion`: condition which could be `demo` (2 spheres), `phantom` (phantom condition), `bbhoriz` (bent beam horizontal condition), or `bbdepth` (bent beam depth condition)
-  * `method`: `sc` (staircase) or `adj` (adjustment)
-  * `id`: combines `illusion` and `method`
-  * `data`: variable value (e.g. separation or angle depending on condition)
-  * `time`: elapsed time in seconds
-  * `minutes`: elapsed time in minutes
-  * `trial`: estimate number (e.g. there were 2 staircase estimates and 4 adjustment estimates per condition)
-  * `count`: response number within the current estimate
-  * `inflection`: indicates whether the current response is an inflection point: -1 indicates increasing -> decreasing, 1 indicates decreasing -> increasing, and 0 indicates no inflection.    * `benchmark`: benchmark value for current condition (e.g. 75 m for phantom condition)
-
+`morin_duchesne_prior_syns_outdoor_svf_unnorm.pkl` and `morin_duchesne_prior_yangpurves_unnorm.pkl` contain unnormalized versions of the SYNS and Yang and Purves prior. Both were created using code shared by Xavier Morin-Duchesne.
